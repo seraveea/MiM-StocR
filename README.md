@@ -1,46 +1,34 @@
 # MiM-StocR: Momentum-integrated Multi-task Stock Recommendation with Converge-based Optimization
-## An Official Implementation for KDD-25 submission
 
 ### Environment
 Create a Python 3.8 environment using [requirements.txt](requirements.txt)
 
-Training Data will be shared by Google Drive link after rebuttal.
+Training Data will be shared by Google Drive link after double-blind review.
 
 ### Reproduce the result
-change [backbone] to one from: [GRU, LSTM, GATs, RSR, HIST]
+change [backbone] to one from: [LSTM, GATs, HIST]
 ```
 # For CSI300 dataset
-python exp/mtl_training.py --method our_method --device cuda:0 --ndcg approx --adaptive_k True --loss_type mixed --outdir [target_location] --mtm_source_path --model_name [backbone] --class_weight_method square
+python exp/mtl_training.py --method our_method --device cuda:0 --outdir [target_location] --mtm_source_path --model_name [backbone] --mtm_column mtm0604
 # For CSI100 dataset
-python exp/mtl_training.py --method our_method --device cuda:0 --ndcg approx --adaptive_k True --loss_type mixed --outdir [target_location] --mtm_source_path ./data/csi100_mtm.pkl --model_name [backbone] --class_weight_method square
+python exp/mtl_training.py --method our_method --device cuda:0 --outdir [target_location] --mtm_source_path ./data/csi100_mtm.pkl --model_name [backbone] --mtm_column mtm0604
 ```
 
 ### MTL Baselines
-change [baseline] to one from: [nashmtl, cagrad, dbmtl, uniw]
+change [baseline] to one from: [cagrad, dbmtl, uniw]
 ```
 # For CSI300 dataset
-python exp/mtl_training.py --method [baseline] --device cuda:0 --ndcg approx --adaptive_k True --loss_type mixed --outdir [target_location] --mtm_source_path --model_name [backbone] --class_weight_method square
+python exp/mtl_training.py --method [baseline] --device cuda:0 --outdir [target_location] --mtm_source_path --model_name [backbone] 
 # For CSI100 dataset
-python exp/mtl_training.py --method [baseline] --device cuda:0 --ndcg approx --adaptive_k True --loss_type mixed --outdir [target_location] --mtm_source_path ./data/csi100_mtm.pkl --model_name [backbone] --class_weight_method square
+python exp/mtl_training.py --method [baseline] --device cuda:0 --outdir [target_location] --mtm_source_path ./data/csi100_mtm.pkl --model_name [backbone]
 ```
 
 ### Single task learning
 ```
 # For CSI300 dataset
 python exp/regression_training.py --model_name [backbone] --outdir [target_location] --repeat 3 --device cuda:0
-python exp/classification_training.py --model_name [backbone] --outdir [target_location] --repeat 3 --device cuda:0
 # For CSI100 dataset
-python exp/regression_training.py --model_name ALSTM --outdir [target_location] --repeat 3 --device cuda:1 --mtm_source_path ./data/csi100_mtm.pkl
-python exp/classification_training.py --model_name ALSTM --outdir [target_location] --repeat 3 --device cuda:1 --mtm_source_path ./data/csi100_mtm.pkl
+python exp/regression_training.py --model_name [backbone] --outdir [target_location] --repeat 3 --device cuda:1 --mtm_source_path ./data/csi100_mtm.pkl
 ```
 
-To transfer to rise-or-fall task, add ```--mtm_column mtm0101```
-
 To use cross-entropy or pair-wise loss function, add ```--loss_type cross-entropy``` or  ```--loss_type pair-wise```
-
-
-Thanks to the following open-source repositories:
-1. https://github.com/Wentao-Xu/HIST
-2. https://github.com/AvivNavon/nash-mtl
-3. https://github.com/thuml/Time-Series-Library
-4. https://github.com/median-research-group/LibMTL
