@@ -20,8 +20,9 @@ import pandas as pd
 from torch.utils.tensorboard import SummaryWriter
 import sys
 from collections import defaultdict
+
 sys.path.insert(0, sys.path[0] + "/../")
-from models.model import HIST, GRU, LSTM, GAT, RSR
+from models.model import HIST, LSTM, GAT
 from models.sub_task_models import regression_submodel, classification_submodel
 from utils.utils import cross_entropy, generate_label, evaluate_mc, class_approxNDCG, \
     mse, metric_fn_mto, DoubleBuffer, pair_wise_loss
@@ -38,24 +39,14 @@ warnings.filterwarnings('ignore')
 
 
 def get_model(model_name):
-
-    if model_name.upper() == 'GRU':
-        return GRU
-
     if model_name.upper() == 'LSTM':
         return LSTM
 
     if model_name.upper() == 'GATS':
         return GAT
 
-    if model_name.upper() == 'ALSTM':
-        return ALSTM
-
     if model_name.upper() == 'HIST':
         return HIST
-
-    if model_name.upper() == 'RSR':
-        return RSR
 
     raise ValueError('unknown model name `%s`' % model_name)
 
@@ -80,8 +71,8 @@ global_log_file = None
 
 def pprint(*args):
     # print with UTC+8 time
-    time = '['+str(datetime.datetime.utcnow()+
-                   datetime.timedelta(hours=8))[:19]+'] -'
+    time = '[' + str(datetime.datetime.utcnow() +
+                     datetime.timedelta(hours=8))[:19] + '] -'
     print(time, *args, flush=True)
 
     if global_log_file is None:
@@ -128,8 +119,6 @@ def train_epoch(epoch, weight_method, model, model_c, model_r, optimizer, train_
         optimizer.zero_grad()
         if args.model_name == 'HIST':
             rep = model(feature, stock2concept_matrix[stock_index], market_value)
-        elif args.model_name == 'RSR':
-            rep = model(feature, stock2stock_matrix[stock_index][:, stock_index])
         else:
             rep = model(feature)
         #  task one
@@ -201,8 +190,6 @@ def test_epoch(epoch, model, model_c, model_r, test_loader, writer, args, stock2
         with (torch.no_grad()):
             if args.model_name == 'HIST':
                 rep = model(feature, stock2concept_matrix[stock_index], market_value)
-            elif args.model_name == 'RSR':
-                rep = model(feature, stock2stock_matrix[stock_index][:, stock_index])
             else:
                 rep = model(feature)
             out_1 = model_c(rep)
@@ -214,7 +201,7 @@ def test_epoch(epoch, model, model_c, model_r, test_loader, writer, args, stock2
                 + (1 - args.beta) * class_approxNDCG(args, out_1, label)
             else:
                 loss_s1 = args.beta * (cross_entropy(out_1, label) +
-                                      (1 - args.beta) * pair_wise_loss(args, out_1, label))
+                                       (1 - args.beta) * pair_wise_loss(args, out_1, label))
             loss_s2 = loss_fn(out_2, label_2)
             pred_label, true_label = generate_label(out_1, label)
             preds.append(pd.DataFrame({'pred_class': pred_label.cpu().numpy(),
@@ -235,7 +222,7 @@ def test_epoch(epoch, model, model_c, model_r, test_loader, writer, args, stock2
     """
     acc, average_precision, f1_micro, f1_macro = evaluate_mc(preds, pred_column='pred_class',
                                                              gt_column='ground_truth_class')
-    precision, recall, ic, rank_ic, ndcg = metric_fn_mto(preds, pred_column='pred_score',
+    precision, recall, ic, rank_ic = metric_fn_mto(preds, pred_column='pred_score',
                                                          gt_column='ground_truth_score')
 
     score_c = acc
@@ -251,7 +238,7 @@ def test_epoch(epoch, model, model_c, model_r, test_loader, writer, args, stock2
     writer.add_scalar(prefix + '/std(regression score)', np.std(score_r), epoch)
 
     return np.mean(losses_s1), np.mean(losses_s2), score_c, score_r, acc, average_precision, f1_micro, f1_macro, \
-        ic, rank_ic, precision, recall, ndcg
+        ic, rank_ic, precision, recall
 
 
 def inference(model, model_c, model_r, data_loader, stock2concept_matrix=None, stock2stock_matrix=None):
@@ -272,8 +259,6 @@ def inference(model, model_c, model_r, data_loader, stock2concept_matrix=None, s
             # new added
             if args.model_name == 'HIST':
                 rep = model(feature, stock2concept_matrix[stock_index], market_value)
-            elif args.model_name == 'RSR':
-                rep = model(feature, stock2stock_matrix[stock_index][:, stock_index])
             else:
                 rep = model(feature)
             out_1 = model_c(rep)
@@ -319,10 +304,6 @@ def main(args):
     stock2stock_matrix = np.load(args.stock2stock_matrix)
     if args.model_name == 'HIST':
         stock2concept_matrix = torch.Tensor(stock2concept_matrix).to(device)
-    if args.model_name == 'RSR':
-        stock2stock_matrix = torch.Tensor(stock2stock_matrix).to(device)
-        num_relation = stock2stock_matrix.shape[2]
-
 
     all_acc = []
     all_macrof1 = []
@@ -332,11 +313,8 @@ def main(args):
     all_recallN = []
     all_ic = []
     all_rank_ic = []
-    all_ndcg = []
-    if args.model_name == 'RSR':
-        rep_len = args.hidden_size * 2
-    else:
-        rep_len = args.hidden_size
+    # all_ndcg = []
+    rep_len = args.hidden_size
     global_best_score = -np.inf
     for times in range(args.repeat):
 
@@ -350,8 +328,6 @@ def main(args):
         pprint('create model...')
         if args.model_name == 'HIST':
             model = get_model(args.model_name)(args)
-        elif args.model_name == 'RSR':
-            model = get_model(args.model_name)(args, num_relation=num_relation)
         else:
             model = get_model(args.model_name)(args, d_feat=args.d_feat, num_layers=args.num_layers)
 
@@ -369,7 +345,7 @@ def main(args):
         optimizer = optim.Adam([
             dict(params=model_params, lr=args.lr),
             dict(params=weight_method.parameters(), lr=args.method_params_lr),
-            ],)
+        ], )
 
         best_score = -np.inf
         best_epoch = 0
@@ -390,7 +366,7 @@ def main(args):
 
             pprint('training...')
             if args.analysis_mode:
-                ana_value = train_epoch(epoch, weight_method,  model, model_c, model_r, optimizer,
+                ana_value = train_epoch(epoch, weight_method, model, model_c, model_r, optimizer,
                                         train_loader, writer, args,
                                         relative_loss_drop_r, relative_loss_drop_c,
                                         stock2concept_matrix, stock2stock_matrix)
@@ -409,15 +385,15 @@ def main(args):
             pprint('evaluating...')
 
             train_loss_c, train_loss_r, train_score_c, train_score_r, train_acc, train_avg_precision, train_f1_micro, train_f1_macro, \
-                train_ic, train_rank_ic, train_precisionN, train_recallN, train_ndcg = \
+                train_ic, train_rank_ic, train_precisionN, train_recallN = \
                 test_epoch(epoch, model, model_c, model_r, train_loader, writer, args,
                            stock2concept_matrix, stock2stock_matrix, prefix='Train')
             val_loss_c, val_loss_r, val_score_c, val_score_r, val_acc, val_avg_precision, val_f1_micro, val_f1_macro, \
-                val_ic, val_rank_ic, val_precisionN, val_recallN, val_ndcg = \
+                val_ic, val_rank_ic, val_precisionN, val_recallN = \
                 test_epoch(epoch, model, model_c, model_r, valid_loader, writer, args,
                            stock2concept_matrix, stock2stock_matrix, prefix='Valid')
-            test_loss_c, test_loss_r, test_score_c, test_scor_r, test_acc, test_avg_precision, test_f1_micro, test_f1_macro, \
-                test_ic, test_rank_ic, test_precisionN, test_recallN, test_ndcg = \
+            test_loss_c, test_loss_r, test_score_c, test_score_r, test_acc, test_avg_precision, test_f1_micro, test_f1_macro, \
+                test_ic, test_rank_ic, test_precisionN, test_recallN = \
                 test_epoch(epoch, model, model_c, model_r, test_loader, writer, args,
                            stock2concept_matrix, stock2stock_matrix, prefix='Test')
 
@@ -427,7 +403,8 @@ def main(args):
                                                                                      val_loss_r, test_loss_r))
             pprint('train_acc %.6f, valid_acc %.6f, test_acc %.6f' % (train_acc, val_acc, test_acc))
             pprint('train_ic %.6f, valid_ic %.6f, test_ic %.6f' % (train_ic, val_ic, test_ic))
-            pprint('train_rank_ic %.6f, valid_rank_ic %.6f, test_rank_ic %.6f' % (train_rank_ic, val_rank_ic, test_rank_ic))
+            pprint('train_rank_ic %.6f, valid_rank_ic %.6f, test_rank_ic %.6f' % (
+            train_rank_ic, val_rank_ic, test_rank_ic))
 
             pprint('train_avg_precision %.6f, valid_avg_precision %.6f, test_avg_precision %.6f' % (train_avg_precision,
                                                                                                     val_avg_precision,
@@ -456,8 +433,8 @@ def main(args):
                 base_score_r = val_score_r
                 base_score_c = val_score_c
 
-            val_score_r = (val_score_r - base_score_r)/abs(base_score_r)
-            val_score_c = (val_score_c - base_score_c)/abs(base_score_c)
+            val_score_r = (val_score_r - base_score_r) / abs(base_score_r)
+            val_score_c = (val_score_c - base_score_c) / abs(base_score_c)
 
             if args.primary:
                 # only care the regression
@@ -497,9 +474,9 @@ def main(args):
         model_c.load_state_dict(best_param_c)
         model_r.load_state_dict(best_param_r)
 
-        np.save(open(output_path+'/regression_norm_grads.npy', 'wb'), grads_norm_r)
-        np.save(open(output_path+'/classification_norm_grads.npy', 'wb'), grads_norm_c)
-        np.save(open(output_path+'cosine_bwt_2grads.npy', 'wb'), cosine_list)
+        np.save(open(output_path + '/regression_norm_grads.npy', 'wb'), grads_norm_r)
+        np.save(open(output_path + '/classification_norm_grads.npy', 'wb'), grads_norm_c)
+        np.save(open(output_path + 'cosine_bwt_2grads.npy', 'wb'), cosine_list)
 
         torch.save(best_param, output_path + '/model.bin')
         torch.save(best_param_c, output_path + '/model_c.bin')
@@ -519,7 +496,7 @@ def main(args):
                              stock2stock_matrix=stock2stock_matrix)
             acc, average_precision, f1_micro, f1_macro = evaluate_mc(pred, pred_column='pred_class',
                                                                      gt_column='ground_truth_class')
-            precision, recall, ic, rank_ic, ndcg = metric_fn_mto(pred, pred_column='pred_score',
+            precision, recall, ic, rank_ic = metric_fn_mto(pred, pred_column='pred_score',
                                                                  gt_column='ground_truth_score')
             # acc, average_precision, f1_micro, f1_macro = evaluate_mc(pred)
             pprint(name, ': Accuracy ', acc)
@@ -546,7 +523,7 @@ def main(args):
         all_recallN.append(list(recall.values()))
         all_ic.append(ic)
         all_rank_ic.append(rank_ic)
-        all_ndcg.append(list(ndcg.values()))
+        # all_ndcg.append(list(ndcg.values()))
 
         pprint('save info...')
         writer.add_hparams(
@@ -575,12 +552,12 @@ def main(args):
     precision_stdN = np.array(all_precisionN).std(axis=0)
     recall_meanN = np.array(all_recallN).mean(axis=0)
     recall_stdN = np.array(all_recallN).std(axis=0)
-    ndcg_meanN = np.array(all_ndcg).mean(axis=0)
-    ndcg_stdN = np.array(all_ndcg).std(axis=0)
+    # ndcg_meanN = np.array(all_ndcg).mean(axis=0)
+    # ndcg_stdN = np.array(all_ndcg).std(axis=0)
     N = [1, 3, 5, 10, 20, 30, 50, 100]
     for k in range(len(N)):
         pprint('Precision@%d: %.4f (%.4f)' % (N[k], precision_meanN[k], precision_stdN[k]))
-        pprint('NDCG@%d: %.4f (%.4f)' % (N[k], ndcg_meanN[k], ndcg_stdN[k]))
+        # pprint('NDCG@%d: %.4f (%.4f)' % (N[k], ndcg_meanN[k], ndcg_stdN[k]))
 
     pprint('finished.')
 
@@ -610,7 +587,7 @@ def parse_args():
     parser.add_argument('--K', type=int, default=1)
 
     # for loss function setting
-    parser.add_argument('--loss_type', default='mixed', help='choose mixed or pair_wise')
+    parser.add_argument('--loss_type', default='mixed', help='choose cross_entropy， mixed or pair_wise')
     parser.add_argument('--num_class', default=5, help='the number of class of stock sequence')
     parser.add_argument('--topk', default=50, help='the number of computing NDCG@k, works when adaptive_k False')
     parser.add_argument('--adaptive_k', default=True)
@@ -654,7 +631,7 @@ def parse_args():
     # input for csi 300
     parser.add_argument('--market_value_path', default='./data/csi300_market_value_07to22.pkl')
     parser.add_argument('--mtm_source_path', default='./data/original_mtm.pkl')
-    parser.add_argument('--mtm_column', default='mtm0604')
+    parser.add_argument('--mtm_column', default='mtm0101')
     parser.add_argument('--stock2concept_matrix', default='./data/csi300_stock2concept.npy')
     parser.add_argument('--stock2stock_matrix', default='./data/csi300_multi_stock2stock.npy')
     parser.add_argument('--stock_index', default='./data/csi300_stock_index.npy')
@@ -663,13 +640,14 @@ def parse_args():
     parser.add_argument('--device', default='cuda:2')
 
     # mtl methods
-    parser.add_argument("--method", type=str, default='our_method', choices=list(METHODS.keys()), help="MTL weight method")
+    parser.add_argument("--method", type=str, default='our_method', choices=list(METHODS.keys()),
+                        help="MTL weight method")
     parser.add_argument("--update_weights_every", type=int, default=1, help="update task weights every x iterations.")
     parser.add_argument("--c", type=float, default=0.4, help="c for CAGrad alg.")
     parser.add_argument("--dwa_temp", type=float, default=2.0,
                         help="Temperature hyper-parameter for DWA. Default to 2 like in the original paper.")
     parser.add_argument("--method_params_lr", type=float, default=0.025,
-                        help="lr for weight method params. If None, set to args.lr. For uncertainty weighting",)
+                        help="lr for weight method params. If None, set to args.lr. For uncertainty weighting", )
     parser.add_argument("--nashmtl_optim_niter", type=int, default=20, help="number of nashmtl iterations")
     args = parser.parse_args()
 

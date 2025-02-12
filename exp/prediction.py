@@ -12,7 +12,7 @@ import pandas as pd
 import sys
 
 sys.path.insert(0, sys.path[0] + "/../")
-from models.model import MLP, HIST, GRU, LSTM, GAT, RSR
+from models.model import HIST, LSTM, GAT
 from utils.dataloader import create_mto_loaders
 import warnings
 import logging
@@ -26,24 +26,14 @@ warnings.filterwarnings('ignore')
 
 
 def get_model(model_name):
-    if model_name.upper() == 'MLP':
-        return MLP
-
     if model_name.upper() == 'LSTM':
         return LSTM
-
-    if model_name.upper() == 'GRU':
-        return GRU
-        # return GRUModel
 
     if model_name.upper() == 'GATS':
         return GAT
 
     if model_name.upper() == 'HIST':
         return HIST
-
-    if model_name.upper() == 'RSR':
-        return RSR
 
     raise ValueError('unknown model name `%s`' % model_name)
 
@@ -75,8 +65,6 @@ def inference(args, model, data_loader, stock2concept_matrix=None, stock2stock_m
         with torch.no_grad():
             if args.model_name == 'HIST':
                 pred = model(feature, stock2concept_matrix[stock_index], market_value)
-            elif args.model_name == 'RSR':
-                pred = model(feature, stock2stock_matrix[stock_index][:, stock_index])
             else:
                 pred = model(feature)
 
@@ -96,11 +84,8 @@ def prediction(args, model_path, device):
     print('load model ', param_dict['model_name'])
     if param_dict['model_name'] == 'GRU':
         model = get_model(param_dict['model_name'])(DotDict(param_dict), d_feat=param_dict['d_feat'], num_layers=param_dict['num_layers'])
-    elif param_dict['model_name'] == 'RSR':
-        num_relation = stock2stock_matrix.shape[2]
-        model = get_model(param_dict['model_name'])(DotDict(param_dict), num_relation=num_relation)
     else:
-        model = get_model(param_dict['model_name'])(DotDict(param_dict), d_feat=param_dict["d_feat"], num_layers=param_dict["num_layers"])
+        model = get_model(param_dict['model_name'])(DotDict(param_dict))
     model.to(device)
 
     model.load_state_dict(torch.load(param_dict['model_dir'] + '/model_best.bin', map_location=device))
@@ -142,15 +127,14 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=-1)  # -1 indicate daily batch
     parser.add_argument('--config', action=ParseConfigFile, default='')
     parser.add_argument('--mtm_source_path', default='./data/original_mtm.pkl')
-    parser.add_argument('--mtm_column', default='mtm0604')
+    parser.add_argument('--mtm_column', default='mtm0101')
     parser.add_argument('--stock_index', default='./data/csi300_stock_index.npy')
     parser.add_argument('--device', default='cuda:1')
     # input and output
-    parser.add_argument('--model_path', default='./output/single_training/GRU_str')
-    parser.add_argument('--pkl_path', default='./pred_output/GRU_str.pkl',
+    parser.add_argument('--model_path', default='./output/single_training/LSTM_regression')
+    parser.add_argument('--pkl_path', default='./pred_output/LSTM_stl.pkl',
                         help='location to save the pred dictionary file')
     args = parser.parse_args()
-
     return args
 
 

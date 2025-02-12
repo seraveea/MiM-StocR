@@ -16,7 +16,7 @@ import pandas as pd
 from torch.utils.tensorboard import SummaryWriter
 import sys
 sys.path.insert(0, sys.path[0]+"/../")
-from models.model import MLP, HIST, GRU, LSTM, GAT, RSR
+from models.model import HIST, LSTM, GAT
 from utils.utils import metric_fn, mse, loss_ic, pair_wise_loss, NDCG_loss, ApproxNDCG_loss
 from utils.dataloader import create_mto_loaders
 import warnings
@@ -32,24 +32,14 @@ warnings.filterwarnings('ignore')
 
 def get_model(model_name):
 
-    if model_name.upper() == 'MLP':
-        return MLP
-
     if model_name.upper() == 'LSTM':
         return LSTM
-
-    if model_name.upper() == 'GRU':
-        return GRU
 
     if model_name.upper() == 'GATS':
         return GAT
 
     if model_name.upper() == 'HIST':
         return HIST
-
-    if model_name.upper() == 'RSR':
-        return RSR
-
     raise ValueError('unknown model name `%s`'%model_name)
 
 
@@ -104,8 +94,6 @@ def train_epoch(epoch, model, optimizer, train_loader, writer, args,
             pred = model(feature, stock2concept_matrix[stock_index], market_value)
             # the stock2concept_matrix[stock_index] is a matrix, shape is (the number of stock index, predefined con)
             # the stock2concept_matrix has been sort to the order of stock index
-        elif args.model_name == 'RSR':
-            pred = model(feature, stock2stock_matrix[stock_index][:, stock_index])
         else:
             # other model only use feature as input
             pred = model(feature)
@@ -146,8 +134,6 @@ def test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix=Non
         with torch.no_grad():
             if args.model_name == 'HIST':
                 pred = model(feature, stock2concept_matrix[stock_index], market_value)
-            elif args.model_name == 'RSR':
-                pred = model(feature, stock2stock_matrix[stock_index][:, stock_index])
             else:
                 pred = model(feature)
 
@@ -163,7 +149,7 @@ def test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix=Non
     # evaluate
     preds = pd.concat(preds, axis=0)
     # use metric_fn to compute precision, recall, ic and rank ic
-    precision, recall, ic, rank_ic, ndcg = metric_fn(preds)
+    precision, recall, ic, rank_ic = metric_fn(preds)
     scores = rank_ic
 
     writer.add_scalar(prefix+'/Loss', np.mean(losses), epoch)
@@ -171,7 +157,7 @@ def test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix=Non
     writer.add_scalar(prefix+'/'+args.metric, np.mean(scores), epoch)
     writer.add_scalar(prefix+'/std('+args.metric+')', np.std(scores), epoch)
 
-    return np.mean(losses), scores, precision, recall, ic, rank_ic, ndcg
+    return np.mean(losses), scores, precision, recall, ic, rank_ic
 
 
 def inference(model, data_loader, stock2concept_matrix=None, stock2stock_matrix=None):
@@ -185,8 +171,6 @@ def inference(model, data_loader, stock2concept_matrix=None, stock2stock_matrix=
         with torch.no_grad():
             if args.model_name == 'HIST':
                 pred = model(feature, stock2concept_matrix[stock_index], market_value)
-            elif args.model_name == 'RSR':
-                pred = model(feature, stock2stock_matrix[stock_index][:, stock_index])
             else:
                 pred = model(feature)
             preds.append(pd.DataFrame({'score': pred.cpu().numpy(), 'label': label.cpu().numpy(),}, index=index))
@@ -217,7 +201,7 @@ def main(args):
     writer = SummaryWriter(log_dir=output_path)
 
     global global_log_file
-    global_log_file = output_path + '/' + args.name + '_run.log'
+    global_log_file = output_path + '/' + args.model_name + '_run.log'
 
     pprint('create loaders...')
     train_loader, valid_loader, test_loader = create_mto_loaders(args, device=device)
@@ -226,9 +210,6 @@ def main(args):
     stock2stock_matrix = np.load(args.stock2stock_matrix)
     if args.model_name == 'HIST':
         stock2concept_matrix = torch.Tensor(stock2concept_matrix).to(device)
-    if args.model_name == 'RSR':
-        stock2stock_matrix = torch.Tensor(stock2stock_matrix).to(device)
-        num_relation = stock2stock_matrix.shape[2]
 
     all_precision = []
     all_recall = []
@@ -241,8 +222,6 @@ def main(args):
         if args.model_name == 'HIST':
             # model = get_model(args.model_name)(d_feat=args.d_feat, num_layers=args.num_layers, K=args.K)
             model = get_model(args.model_name)(args)
-        elif args.model_name == 'RSR':
-            model = get_model(args.model_name)(args, num_relation=num_relation)
         else:
             model = get_model(args.model_name)(args, d_feat=args.d_feat, num_layers=args.num_layers)
         
@@ -265,9 +244,9 @@ def main(args):
             params_ckpt = copy.deepcopy(model.state_dict())
             pprint('evaluating...')
             # compute the loss, score, pre, recall, ic, rank_ic on train, valid and test data
-            train_loss, train_score, train_precision, train_recall, train_ic, train_rank_ic, train_ndcg = test_epoch(epoch, model, train_loader, writer, args, stock2concept_matrix, stock2stock_matrix, prefix='Train')
-            val_loss, val_score, val_precision, val_recall, val_ic, val_rank_ic, val_ndcg = test_epoch(epoch, model, valid_loader, writer, args, stock2concept_matrix, stock2stock_matrix, prefix='Valid')
-            test_loss, test_score, test_precision, test_recall, test_ic, test_rank_ic, test_ndcg = test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix, stock2stock_matrix, prefix='Test')
+            train_loss, train_score, train_precision, train_recall, train_ic, train_rank_ic = test_epoch(epoch, model, train_loader, writer, args, stock2concept_matrix, stock2stock_matrix, prefix='Train')
+            val_loss, val_score, val_precision, val_recall, val_ic, val_rank_ic = test_epoch(epoch, model, valid_loader, writer, args, stock2concept_matrix, stock2stock_matrix, prefix='Valid')
+            test_loss, test_score, test_precision, test_recall, test_ic, test_rank_ic = test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix, stock2stock_matrix, prefix='Test')
 
             pprint('train_loss %.6f, valid_loss %.6f, test_loss %.6f'%(train_loss, val_loss, test_loss))
             pprint('train_ic %.6f, valid_ic %.6f, test_ic %.6f' % (train_ic, val_ic, test_ic))
@@ -278,9 +257,6 @@ def main(args):
             pprint('Train Recall: ', train_recall)
             pprint('Valid Recall: ', val_recall)
             pprint('Test Recall: ', test_recall)
-            pprint('Train NDCG: ', train_ndcg)
-            pprint('Valid NDCG: ', val_ndcg)
-            pprint('Test NDCG: ', test_ndcg)
 
             if val_score > best_score:
                 best_score = val_score
@@ -308,19 +284,16 @@ def main(args):
                              stock2stock_matrix=stock2stock_matrix)
             # pred.to_pickle(output_path+'/pred.pkl.'+name+str(times))
 
-            precision, recall, ic, rank_ic, ndcg = metric_fn(pred)
+            precision, recall, ic, rank_ic = metric_fn(pred)
 
             pprint('%s: IC %.6f Rank IC %.6f' % (name, ic.mean(), rank_ic.mean()))
             pprint(name, ': Precision ', precision)
             pprint(name, ': Recall ', recall)
-            pprint(name, ':NDCG', ndcg)
             res[name+'-IC'] = ic
             res[name+'-RankIC'] = rank_ic
-            res[name+'-NDCG@100'] = ndcg[100]
         
         all_precision.append(list(precision.values()))
         all_recall.append(list(recall.values()))
-        all_ndcg.append(list(ndcg.values()))
         all_ic.append(ic)
         all_rank_ic.append(rank_ic)
 
@@ -344,12 +317,9 @@ def main(args):
     pprint('IC: %.4f (%.4f), Rank IC: %.4f (%.4f)' % (np.array(all_ic).mean(), np.array(all_ic).std(), np.array(all_rank_ic).mean(), np.array(all_rank_ic).std()))
     precision_mean = np.array(all_precision).mean(axis=0)
     precision_std = np.array(all_precision).std(axis=0)
-    ndcg_mean = np.array(all_ndcg).mean(axis=0)
-    ndcg_std = np.array(all_ndcg).std(axis=0)
     N = [1, 3, 5, 10, 20, 30, 50, 100]
     for k in range(len(N)):
         pprint('Precision@%d: %.4f (%.4f)' % (N[k], precision_mean[k], precision_std[k]))
-        pprint('NDCG@%d: %.4f (%.4f)' % (N[k], ndcg_mean[k], ndcg_std[k]))
 
     pprint('finished.')
 
@@ -408,7 +378,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=2024)
     parser.add_argument('--annot', default='')
     parser.add_argument('--config', action=ParseConfigFile, default='')
-    parser.add_argument('--name', type=str, default='PatchTST')
+    # parser.add_argument('--name', type=str, default='PatchTST')
 
     # input for csi 300
     parser.add_argument('--market_value_path', default='./data/csi300_market_value_07to22.pkl')
@@ -417,7 +387,7 @@ def parse_args():
     parser.add_argument('--mtm_source_path', default='./data/original_mtm.pkl')
     parser.add_argument('--mtm_column', default='mtm0604')
     parser.add_argument('--stock_index', default='./data/csi300_stock_index.npy')
-    parser.add_argument('--outdir', default='./output/csi300_RSR')
+    parser.add_argument('--outdir', default='./output/single_training/HIST_stl')
     parser.add_argument('--overwrite', action='store_true', default=False)
     parser.add_argument('--device', default='cuda:1')
     args = parser.parse_args()

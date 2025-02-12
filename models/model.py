@@ -7,29 +7,6 @@ import sys
 sys.path.append("..")
 from utils.utils import cal_cos_similarity
 
-
-class MLP(nn.Module):
-
-    def __init__(self, d_feat, hidden_size=512, num_layers=1, dropout=0.0):
-        super().__init__()
-
-        self.mlp = nn.Sequential()
-
-        for i in range(num_layers):
-            if i > 0:
-                self.mlp.add_module('drop_%d' % i, nn.Dropout(dropout))
-            self.mlp.add_module('fc_%d' % i, nn.Linear(
-                360 if i == 0 else hidden_size, hidden_size))
-            self.mlp.add_module('relu_%d' % i, nn.ReLU())
-
-        self.mlp.add_module('fc_out', nn.Linear(hidden_size, 1))
-
-    def forward(self, x):
-        # feature
-        # [N, F]
-        return self.mlp(x).squeeze()
-
-
 class HIST(nn.Module):
     def __init__(self, args):
         super().__init__()
@@ -214,54 +191,6 @@ class HIST(nn.Module):
     def last_shared_parameters(self):
         return self.fc_indi.parameters()
 
-
-class GRU(nn.Module):
-    def __init__(self, args, d_feat=6, num_layers=2, dropout=0.0):
-        super().__init__()
-
-        self.gru = nn.GRU(
-            input_size=d_feat,
-            hidden_size=args.hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout,
-        )
-        self.task_name = args.task_name
-        if self.task_name == 'regression':
-            self.fc = nn.Linear(args.hidden_size, 1)
-        elif self.task_name == 'multi-class':
-            self.fc = nn.Linear(args.hidden_size, args.num_class)
-            self.softmax = torch.nn.Softmax(dim=1)
-
-        self.d_feat = d_feat
-
-    def rep(self, x):
-        x = x.reshape(len(x), self.d_feat, -1)  # [N, F, T]
-        x = x.permute(0, 2, 1)  # [N, T, F]
-        out, _ = self.gru(x)
-        return out[:, -1, :]
-
-    def regression(self, x):
-        return self.fc(x).squeeze()
-
-    def classification(self, x):
-        return self.softmax(self.fc(x))
-
-    def forward(self, x):
-        # x shape N, F*T
-        rep = self.rep(x)
-        if self.task_name == 'regression':
-            return self.regression(rep)
-        elif self.task_name == 'classification':
-            return self.classification(rep)
-        # deliver the last layer as output
-        else:
-            return rep
-
-    def last_shared_parameters(self):
-        return self.gru.parameters()
-
-
 class LSTM(nn.Module):
     def __init__(self, args, d_feat=6, num_layers=2, dropout=0.0):
         super().__init__()
@@ -372,87 +301,5 @@ class GAT(nn.Module):
             return self.softmax(self.fc_out(hidden))
         else:
             return hidden
-
-
-class RSR(nn.Module):
-    def __init__(self, args, num_relation, base_model="GRU"):
-        super().__init__()
-
-        self.d_feat = args.d_feat
-        self.hidden_size = args.hidden_size
-
-        self.rnn = nn.GRU(
-            input_size=args.d_feat,
-            hidden_size=args.hidden_size,
-            num_layers=args.num_layers,
-            batch_first=True,
-            dropout=args.dropout,
-        )
-        self.W = nn.Linear((args.hidden_size * 2) + num_relation, 1)
-        torch.nn.init.xavier_uniform_(self.W.weight)
-        self.leaky_relu = nn.LeakyReLU()
-        # if use for loop in forward, change dim to 0
-        self.softmax1 = torch.nn.Softmax(dim=1)
-        self.task_name = args.task_name
-        if self.task_name == 'regression':
-            self.fc = nn.Linear(args.hidden_size * 2, 1)
-        elif self.task_name == 'classification':
-            self.fc = nn.Linear(args.hidden_size * 2, args.num_class)
-
-    def rep(self, x, relation_matrix):
-        # 注意，使用multi relation不能加负无穷大来使softmax后的值为0，不然会发生梯度回传为nan
-        # N = the number of stock in current slice
-        # F = feature length
-        # T = number of days, usually = 60, since F*T should be 360
-        # x is the feature of all stocks in one day
-        # device = torch.device(torch.get_device(x))
-        x_hidden = x.reshape(len(x), self.d_feat, -1)  # [N, F, T]
-        x_hidden = x_hidden.permute(0, 2, 1)  # [N, T, F]
-        x_hidden, _ = self.rnn(x_hidden)
-        x_hidden = x_hidden[:, -1, :]  # [N, 64]
-        # get the last layer embeddings
-        # update embedding using relation_matrix
-        # relation matrix shape [N, N]
-        ei = x_hidden.unsqueeze(1).repeat(1, relation_matrix.shape[0], 1)  # shape N,N,64
-        hidden_batch = x_hidden.unsqueeze(0).repeat(relation_matrix.shape[0], 1, 1)  # shape N,N,64
-        matrix = torch.cat((ei, hidden_batch, relation_matrix), 2)  # matrix shape N,N,64+关系数
-        # weight = (torch.matmul(matrix, self.W) + self.b).squeeze(2)  # weight shape N,N
-        weight = self.W(matrix).squeeze(2)
-        weight = self.leaky_relu(weight)  # relu layer
-        index = torch.t(torch.nonzero(torch.sum(relation_matrix, 2)))
-        mask = torch.zeros(relation_matrix.shape[0], relation_matrix.shape[1], device=x_hidden.device)
-        mask[index[0], index[1]] = 1
-        # valid_weight = mask*weight
-        # valid_weight = self.softmax1(valid_weight)
-        temp_weight = mask * weight
-        index_2 = torch.t((temp_weight == 0).nonzero())
-        temp_weight[index_2[0], index_2[1]] = -10000
-        valid_weight = self.softmax1(temp_weight)  # N,N
-        valid_weight = valid_weight * mask
-        hidden = torch.matmul(valid_weight, x_hidden)
-        hidden = torch.cat((x_hidden, hidden), 1)
-        # now hidden shape (N,64) stores all new embeddings
-        # pred_all = self.fc(hidden).squeeze()
-        return hidden
-
-    def regression(self, hidden):
-        return self.fc(hidden).squeeze()
-
-    def classification(self, hidden):
-        return self.softmax1(self.fc(hidden))
-
-    def forward(self, x, relation_matrix):
-        # x shape N, F*T
-        rep = self.rep(x, relation_matrix)
-        if self.task_name == 'regression':
-            return self.regression(rep)
-        elif self.task_name == 'classification':
-            return self.classification(rep)
-        # deliver the last layer as output
-        else:
-            return rep
-
-    def last_shared_parameters(self):
-        return self.W.parameters()
 
 

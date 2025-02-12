@@ -21,7 +21,7 @@ import pandas as pd
 import sys
 
 sys.path.insert(0, sys.path[0] + "/../")
-from models.model import MLP, HIST, GRU, LSTM, GAT, RSR
+from models.model import HIST, LSTM, GAT
 from models.sub_task_models import regression_submodel, classification_submodel
 from utils.utils import generate_label
 from utils.dataloader import create_mto_loaders
@@ -37,23 +37,14 @@ warnings.filterwarnings('ignore')
 
 
 def get_model(model_name):
-    if model_name.upper() == 'MLP':
-        return MLP
-
     if model_name.upper() == 'LSTM':
         return LSTM
-
-    if model_name.upper() == 'GRU':
-        return GRU
 
     if model_name.upper() == 'GATS':
         return GAT
 
     if model_name.upper() == 'HIST':
         return HIST
-
-    if model_name.upper() == 'RSR':
-        return RSR
 
     raise ValueError('unknown model name `%s`' % model_name)
 
@@ -88,8 +79,6 @@ def inference(args, model, model_c, model_r, data_loader, stock2concept_matrix=N
         with torch.no_grad():
             if args.model_name == 'HIST':
                 rep = model(feature, stock2concept_matrix[stock_index], market_value)
-            elif args.model_name == 'RSR':
-                rep = model(feature, stock2stock_matrix[stock_index][:, stock_index])
             else:
                 rep = model(feature)
             out_1 = model_c(rep)
@@ -116,12 +105,7 @@ def prediction(args, model_path, device):
     else:
         rep_len = param_dict['hidden_size']  # overload the rep_len for HIST model
     print('load model ', param_dict['model_name'])
-    if param_dict['model_name'] == 'GRU':
-        model = get_model(param_dict['model_name'])(DotDict(param_dict), d_feat=param_dict['d_feat'], num_layers=param_dict['num_layers'])
-    elif param_dict['model_name'] == 'RSR':
-        num_relation = stock2stock_matrix.shape[2]
-        model = get_model(param_dict['model_name'])(DotDict(param_dict), num_relation=num_relation)
-    elif param_dict['model_name'] == 'HIST':
+    if param_dict['model_name'] == 'HIST':
         model = get_model(param_dict['model_name'])(DotDict(param_dict))
     else:
         model = get_model(param_dict['model_name'])(DotDict(param_dict), d_feat=param_dict["d_feat"], num_layers=param_dict["num_layers"])
@@ -170,12 +154,12 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=-1)  # -1 indicate daily batch
     parser.add_argument('--config', action=ParseConfigFile, default='')
     parser.add_argument('--mtm_source_path', default='./data/original_mtm.pkl')
-    parser.add_argument('--mtm_column', default='mtm0604')
+    parser.add_argument('--mtm_column', default='mtm0101')
     parser.add_argument('--stock_index', default='./data/csi300_stock_index.npy')
     parser.add_argument('--device', default='cuda:1')
     # input and output
-    parser.add_argument('--model_path', default='./output/RSR')
-    parser.add_argument('--pkl_path', default='./pred_output/RSR.pkl',
+    parser.add_argument('--model_path', default='./output/DB_MTL/LSTM_mixed')
+    parser.add_argument('--pkl_path', default='./pred_output/LSTM_dbmtl.pkl',
                         help='location to save the pred dictionary file')
     args = parser.parse_args()
 

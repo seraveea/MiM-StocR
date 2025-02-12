@@ -356,27 +356,3 @@ def bin_helper(x):
         return 2
     else:
         return 3
-    # if x < -0.05:
-    #     return 0
-    # elif x < -0.04:
-    #     return 1
-    # elif x < -0.03:
-    #     return 2
-    # elif x < -0.02:
-    #     return 3
-    # elif x < -0.01:
-    #     return 4
-    # elif x < 0:
-    #     return 5
-    # elif x < 0.01:
-    #     return 6
-    # elif x < 0.02:
-    #     return 7
-    # elif x < 0.03:
-    #     return 8
-    # elif x < 0.04:
-    #     return 9
-    # elif x < 0.05:
-    #     return 10
-    # else:
-    #     return 11
