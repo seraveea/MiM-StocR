@@ -6,6 +6,7 @@ Create a Python 3.8 environment using [requirements.txt](requirements.txt)
 Training Data will be shared by Google Drive link after double-blind review.
 
 ### Reproduce the result
+
 change [backbone] to one from: [LSTM, GATs, HIST]
 ```
 # For CSI300 dataset
@@ -32,3 +33,18 @@ python exp/regression_training.py --model_name [backbone] --outdir [target_locat
 ```
 
 To use cross-entropy or pair-wise loss function, add ```--loss_type cross-entropy``` or  ```--loss_type pair-wise```
+
+The averaged result will be stored in the log file from result folders.
+
+Reproduce the Qlib backtest:
+
+For MTL baselines (cagrad, our method, dbmtl and equal weight), 
+change the ```model_path``` in ```python prediction_mto.py```, 
+run ```python prediction_mto.py``` and prediction file will be saved in ```pkl_path```.
+
+For single task learning,
+change the ```model_path``` in ```python prediction.py```, 
+run ```python prediction.py``` and prediction file will be saved in ```pkl_path```.
+
+
+Change the pickle file in ```backtest.py``` and run for bakctest and return analysis.
